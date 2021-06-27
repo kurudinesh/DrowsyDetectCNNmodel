@@ -158,26 +158,17 @@ def extract_landmarks(rootdir, outputdir, no_frames, file_type, no_processes):
     video_target = get_video_target_paths(rootdir)
     with concurrent.futures.ProcessPoolExecutor(no_processes) as executor:
         futures = []
-        for  path, target in video_target.items():
-            #save the landmark at given 'target'_frame_no.'file_type' path and 'file_type'
-            #generateFacemeshnumpyArray(target, path, no_frames,file_type)
-            futures.append(executor.submit(generateFacemeshnumpyArray, target_dir = target, path = path, no = no_frames,
-                            file_type=file_type))
-        for future in concurrent.futures.as_completed(futures):
+        future_to_path = {executor.submit(generateFacemeshnumpyArray, target_dir = target, path = path, no = no_frames,
+                            file_type=file_type): target for  path, target in video_target.items()}
+        for future in concurrent.futures.as_completed(future_to_path):
+            path = future_to_path[future]
             print(future.done())
-    #
-    # # We can use a with statement to ensure threads are cleaned up promptly
-    # with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-    #     # Start the load operations and mark each future with its URL
-    #     future_to_url = {executor.submit(load_url, url, 60): url for url in URLS}
-    #     for future in concurrent.futures.as_completed(future_to_url):
-    #         url = future_to_url[future]
-    #         try:
-    #             data = future.result()
-    #         except Exception as exc:
-    #             print('%r generated an exception: %s' % (url, exc))
-    #         else:
-    #             print('%r page is %d bytes' % (url, len(data)))
+            try:
+                data = future.result()
+            except Exception as exc:
+                print('%r generated an exception: %s' % (path, exc))
+            else:
+                print('%r page is %d bytes' % (path, len(data)))
 
 #input data directory
 rootdir = args['inputdir']
