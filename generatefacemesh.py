@@ -155,6 +155,8 @@ def extract_landmarks(rootdir, outputdir, no_frames, file_type, no_processes):
     if not os.path.exists(outputdir):
         os.makedirs(outputdir)
 
+    status = True
+
     video_target = get_video_target_paths(rootdir)
     with concurrent.futures.ProcessPoolExecutor(no_processes) as executor:
         futures = []
@@ -167,8 +169,11 @@ def extract_landmarks(rootdir, outputdir, no_frames, file_type, no_processes):
                 data = future.result()
             except Exception as exc:
                 print('%r generated an exception: %s' % (path, exc))
+                status = False
             else:
                 print('%r page is %d bytes' % (path, len(data)))
+
+    return  status
 
 #input data directory
 rootdir = args['inputdir']
@@ -182,7 +187,8 @@ if __name__=="__main__":
 
     threaded_start = time.time()
 
-    extract_landmarks(rootdir,outputdir,no_frames,file_type,no_processes)
+    while(not extract_landmarks(rootdir,outputdir,no_frames,file_type,no_processes)):
+        pass
 
     #printing few samples from each class folder
     for subdir, dirs, files in os.walk(outputdir):
