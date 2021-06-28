@@ -9,6 +9,9 @@ import tensorflow as tf
 import os
 import pickle as pk
 
+from tensorflow.python.framework.ops import disable_eager_execution
+disable_eager_execution()
+
 from ineuron.Dataloader import print_sample
 
 # construct the argument parser and parse the arguments
