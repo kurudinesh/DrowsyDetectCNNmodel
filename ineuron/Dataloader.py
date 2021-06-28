@@ -5,7 +5,8 @@ from ineuron import config as cg
 import pathlib
 from ineuron import config
 
-
+from tensorflow.python.framework.ops import disable_eager_execution
+disable_eager_execution()
 
 def print_sample(landmark_dataset, train_ds, val_ds, test_ds, sn):
     """
@@ -105,7 +106,13 @@ def get_ds(root_dir,train_ratio,val_ratio,file_type):
             lines = tf.strings.split(raw)
             dcsv = tf.io.decode_csv(lines, [0.0, 0.0, 0.0])
             ar = tf.stack([dcsv[0] / 1000, dcsv[1] / 1000, dcsv[2] / 1000], axis=1)
-        ar = tf.reshape(ar, [468, 3])
+
+        try:
+            ar = tf.reshape(ar, [468, 3])
+        except Exception as e:
+            print(e," file path=",file_path)
+
+
         # label = tf.reshape(label,[1])
         return ar, label
 
