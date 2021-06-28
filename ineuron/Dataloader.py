@@ -5,8 +5,8 @@ from ineuron import config as cg
 import pathlib
 from ineuron import config
 
-from tensorflow.python.framework.ops import disable_eager_execution
-disable_eager_execution()
+# from tensorflow.python.framework.ops import disable_eager_execution
+# disable_eager_execution()
 
 def print_sample(landmark_dataset, train_ds, val_ds, test_ds, sn):
     """
@@ -34,11 +34,11 @@ def print_sample(landmark_dataset, train_ds, val_ds, test_ds, sn):
     for file in test_ds.take(sn).as_numpy_iterator():
         print(file)
 
-    print('train_set size=', tf.data.experimental.cardinality(train_ds).numpy())
-    print('val_set size=', tf.data.experimental.cardinality(val_ds).numpy())
-    print('test_set size=', tf.data.experimental.cardinality(test_ds).numpy())
+    print('train_set size=', tf.data.experimental.cardinality(train_ds))
+    print('val_set size=', tf.data.experimental.cardinality(val_ds))
+    print('test_set size=', tf.data.experimental.cardinality(test_ds))
 
-
+@tf.function
 def get_ds(root_dir,train_ratio,val_ratio,file_type):
     """
     reads class files present in subfolders of root_dir and generates dataset for train, test, val
@@ -57,7 +57,7 @@ def get_ds(root_dir,train_ratio,val_ratio,file_type):
     #loading list of npy files in sub directories
     landmark_dataset = tf.data.Dataset.list_files(os.path.join(root_dir, "*", "*."+file_type),shuffle=False)
     # getting count of total landmark files
-    file_count = tf.data.experimental.cardinality(landmark_dataset).numpy()
+    file_count = tf.data.experimental.cardinality(landmark_dataset)
     print('files count=',file_count)
 
     #shuffling dataset with buffersize equal to no of files and preventing reshuffle
@@ -69,8 +69,8 @@ def get_ds(root_dir,train_ratio,val_ratio,file_type):
     if train_ratio+val_ratio >1:
         raise Exception('set proper rations with sum <1')
 
-    train_size = int(train_ratio * file_count)
-    val_size = int(val_ratio * file_count)
+    train_size =tf.cast(tf.cast(file_count,tf.float32) * train_ratio,tf.int64)
+    val_size = tf.cast(tf.cast(file_count,tf.float32) * val_ratio,tf.int64)
 
     train_ds = landmark_dataset.take(train_size)
     test_ds = landmark_dataset.skip(train_size)
@@ -118,18 +118,25 @@ def get_ds(root_dir,train_ratio,val_ratio,file_type):
 
     # print_sample(landmark_dataset, train_ds, val_ds, test_ds, 0)
     #mapping file_path in dataset to landmark (array), label (int)
-    train_ds = train_ds.map(lambda item: tf.numpy_function(
-              load_landmark_label, [item], [tf.float32, tf.uint8]),
-              num_parallel_calls=tf.data.AUTOTUNE).batch(config.BS)
-    val_ds = val_ds.map(lambda item: tf.numpy_function(
-              load_landmark_label, [item], [tf.float32, tf.uint8]),
-              num_parallel_calls=tf.data.AUTOTUNE).batch(config.BS)
-    test_ds = test_ds.map(lambda item: tf.numpy_function(
-              load_landmark_label, [item], [tf.float32, tf.uint8]),
-              num_parallel_calls=tf.data.AUTOTUNE).batch(config.BS)
+    # train_ds = train_ds.map(lambda item: tf.numpy_function(
+    #           load_landmark_label, [item], [tf.float32, tf.uint8]),
+    #           num_parallel_calls=tf.data.AUTOTUNE).batch(config.BS)
+    # val_ds = val_ds.map(lambda item: tf.numpy_function(
+    #           load_landmark_label, [item], [tf.float32, tf.uint8]),
+    #           num_parallel_calls=tf.data.AUTOTUNE).batch(config.BS)
+    # test_ds = test_ds.map(lambda item: tf.numpy_function(
+    #           load_landmark_label, [item], [tf.float32, tf.uint8]),
+    #           num_parallel_calls=tf.data.AUTOTUNE).batch(config.BS)
+
+    train_ds = train_ds.map(load_landmark_label,
+                            num_parallel_calls=tf.data.AUTOTUNE).batch(config.BS,drop_remainder=True)
+    val_ds = val_ds.map(load_landmark_label,
+                        num_parallel_calls=tf.data.AUTOTUNE).batch(config.BS,drop_remainder=True)
+    test_ds = test_ds.map(load_landmark_label,
+                          num_parallel_calls=tf.data.AUTOTUNE).batch(config.BS,drop_remainder=True)
 
     print("printing sample from full size datasets")
-    print_sample(landmark_dataset, train_ds, val_ds, test_ds, 1)
+    # print_sample(landmark_dataset, train_ds, val_ds, test_ds, 1)
 
     return train_ds, val_ds, test_ds
 

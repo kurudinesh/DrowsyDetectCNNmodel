@@ -102,7 +102,7 @@ if not gpu_available or args['env']=='local':
     test_ds = test_ds.take(int(trainds_count / 10))
 
 print('best model training dataset sample counts')
-print_sample(None,train_ds,val_ds,test_ds,1)
+# print_sample(None,train_ds,val_ds,test_ds,1)
 
 # build the best model and train it
 
@@ -125,7 +125,7 @@ callbacks=[
 
 
 H = model.fit(train_ds,
-	validation_data=test_ds, batch_size=config.BS,
+	validation_data=test_ds,
 	epochs=config.EPOCHS, callbacks=callbacks, verbose=1)
 
 
@@ -140,7 +140,7 @@ new_model.summary()
 # evaluate the network
 print("[INFO] evaluating network...")
 # evaluate model
-_, accuracy = new_model.evaluate(test_ds, batch_size=config.BS, verbose=0)
+_, accuracy = new_model.evaluate(test_ds, verbose=0)
 
 # summarize scores
 utils.summarize_results(accuracy)
