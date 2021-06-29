@@ -85,7 +85,7 @@ data_dir = pathlib.Path(root_dir)
 class_names = np.array(sorted([item.name for item in data_dir.glob('*') if item.name != "LICENSE.txt"]))
 print(class_names)
 
-@tf.function
+# @tf.function
 def get_ds():
     """
     reads class files present in subfolders of root_dir and generates dataset for train dataset
