@@ -230,7 +230,7 @@ def hp_tune():
         tuner = kt.RandomSearch(
             build_model,
             objective="sparse_categorical_accuracy",
-            max_trials=10,
+            max_trials=config.trails,
             seed=42,
             directory=output_path,
             project_name=tuning_mode)
@@ -241,7 +241,7 @@ def hp_tune():
         tuner = kt.BayesianOptimization(
             build_model,
             objective="sparse_categorical_accuracy",
-            max_trials=10,
+            max_trials=config.trails,
             seed=42,
             directory=output_path,
             project_name=tuning_mode)
