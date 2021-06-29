@@ -1,3 +1,6 @@
 /data_part32_full/
 .idea
 /data/
+/output/checkpoints/
+/output/logs/
+/output/random/

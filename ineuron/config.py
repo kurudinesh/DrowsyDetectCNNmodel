@@ -7,6 +7,6 @@ INPUT_SHAPE = (468, 3)
 NUM_CLASSES = 3
 # define the total number of epochs to train, batch size, and the
 # early stopping patience
-EPOCHS = 5
+EPOCHS = 50
 BS = 32
 EARLY_STOPPING_PATIENCE = 3
