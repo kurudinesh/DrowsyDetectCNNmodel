@@ -50,58 +50,69 @@ def generateFacemeshnumpyArray(target_dir, path,no,file_type):
     :param file_type: [csv or npy]
     :return:
     '''
-    cap = cv2.VideoCapture(path)
 
-    print('total frames=',cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    i=0
-    last_i =-100
+    flag_continue = True
+    i = 0
+    last_i = -100
     landmarks = []
-    with mp_face_mesh.FaceMesh(
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5) as face_mesh:
 
-      #check if video stream is opened and no of frames processed are less than 'no'
-      # or process all frames if -1 is passes as 'no'
-      while cap.isOpened() and (i < no or no<=0):
-        i += 1
-        target =None
-
-        # #check if frame's landmarks is already saved at the target location and skip this frame
-        # target = target_dir + '_' + str(i)
-        # if os.path.exists(target+'.'+file_type):
-        #     continue
-
-        # setting frame position from where to resume reading video
-        # if last_i +10 < i:
-        #     cap.set(cv2.CAP_PROP_POS_FRAMES, i)
-        # last_i = i
-        # print('writing landmarks for=',target)
-
-        #reading image from video at given set frame
-        success, image = cap.read()
-        if not success:
-            print("Ignoring empty camera frame.")
-            # breaking loop if end of video frames are reached
-            break
-
+    while flag_continue:
         try:
-            # Flip the image horizontally for a later selfie-view display, and convert
-            # the BGR image to RGB.
-            image = cv2.cvtColor(cv2.flip(image, 1), cv2.COLOR_BGR2RGB)
-            # To improve performance, optionally mark the image as not writeable to
-            # pass by reference.
-            image.flags.writeable = False
-            results = face_mesh.process(image)
-            if results.multi_face_landmarks:
-              for face_landmarks in results.multi_face_landmarks:
-                landmark_arr = []
-                #yeilding landmark array and 'target' ie folder location to save
-                for point in face_landmarks.landmark:
-                    landmark_arr.append(np.array([point.x, point.y, point.z]))
-                landmarks.append( landmark_arr)
+
+            cap = cv2.VideoCapture(path)
+
+            print(path,' has total frames=',cap.get(cv2.CAP_PROP_FRAME_COUNT),'setting frame no to',i)
+
+            if last_i + 10 < i:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, i)  # setting frame position from where to resume reading video
+            last_i = i
+
+
+            with mp_face_mesh.FaceMesh(
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5) as face_mesh:
+
+              #check if video stream is opened and no of frames processed are less than 'no'
+              # or process all frames if -1 is passes as 'no'
+              while cap.isOpened() and (i < no or no<=0):
+                i += 1
+                target =None
+
+                #reading image from video at given set frame
+                success, image = cap.read()
+                if not success:
+                    print("Ignoring empty camera frame.")
+                    # breaking loop if end of video frames are reached
+                    break
+
+                try:
+                    # Flip the image horizontally for a later selfie-view display, and convert
+                    # the BGR image to RGB.
+                    image = cv2.cvtColor(cv2.flip(image, 1), cv2.COLOR_BGR2RGB)
+                    # To improve performance, optionally mark the image as not writeable to
+                    # pass by reference.
+                    image.flags.writeable = False
+                    results = face_mesh.process(image)
+                    if results.multi_face_landmarks:
+                      for face_landmarks in results.multi_face_landmarks:
+                        landmark_arr = []
+                        #yeilding landmark array and 'target' ie folder location to save
+                        for point in face_landmarks.landmark:
+                            landmark_arr.append(np.array([point.x, point.y, point.z]))
+                        landmarks.append( landmark_arr)
+                except Exception as e:
+                    print('Error in frame',i,e)
+                except:
+                    print('Error in frame',i)
         except Exception as e:
-            print('Error in frame',i,e)
+            print('Error in frame', i, e)
+        except:
+            print('Error in frame', i)
+        else:
+            print("Completed landmark extraction for file",path)
+            flag_continue = False
+
+
     save_landmark_csv(np.array(landmarks),target_dir)
     cap.release()
     return 'completed ='+path
@@ -181,9 +192,10 @@ def extract_landmarks(rootdir, outputdir, no_frames, file_type, no_processes):
             if glob.glob(sp):
                 continue
             print(path,target)
-            future = executor.submit(generateFacemeshnumpyArray, target_dir = target, path = path, no = no_frames,
-                            file_type=file_type)
-            future_to_path[future] = target
+            generateFacemeshnumpyArray(target, path, no_frames, file_type)
+            # future = executor.submit(generateFacemeshnumpyArray, target_dir = target, path = path, no = no_frames,
+            #                 file_type=file_type)
+            # future_to_path[future] = target
         for future in concurrent.futures.as_completed(future_to_path):
             path = future_to_path[future]
             print(future.done())
