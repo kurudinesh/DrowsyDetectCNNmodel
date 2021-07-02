@@ -13,6 +13,7 @@ import argparse
 import concurrent.futures
 import tensorflow as tf
 import glob
+import json
 
 
 # construct the argument parser and parse the arguments
@@ -29,7 +30,7 @@ ap.add_argument("-n", "--nframes", required=False, type=int,
                 )
 ap.add_argument("-f", "--format", required=False, type=str,
                 choices=["csv", "npy",'dataframe'],
-                default='csv',
+                default='dataframe',
                 help="file format to save landmarks of video frames, DEFAULT 'csv'"
                 )
 ap.add_argument("-p", "--nprocesses", required=False, type=int,
@@ -54,7 +55,6 @@ def generateFacemeshnumpyArray(target_dir, path,no,file_type):
     flag_continue = True
     i = 0
     last_i = -100
-    landmarks = []
 
     while flag_continue:
         try:
@@ -62,6 +62,16 @@ def generateFacemeshnumpyArray(target_dir, path,no,file_type):
             cap = cv2.VideoCapture(path)
 
             print(path,' has total frames=',cap.get(cv2.CAP_PROP_FRAME_COUNT),'setting frame no to',i)
+
+            json_file = os.path.join(target_dir,'landmarks.json')
+
+            if os.path.exists(json_file):
+                print('checking no of lined present')
+                with open(json_file) as f:
+                    for _ in f.readlines():
+                        i=i+1
+            else:
+                os.makedirs(target_dir)
 
             if last_i + 10 < i:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, i)  # setting frame position from where to resume reading video
@@ -71,21 +81,18 @@ def generateFacemeshnumpyArray(target_dir, path,no,file_type):
             with mp_face_mesh.FaceMesh(
                 min_detection_confidence=0.5,
                 min_tracking_confidence=0.5) as face_mesh:
+              with open(json_file,'a+') as f:
+                  #check if video stream is opened and no of frames processed are less than 'no'
+                  # or process all frames if -1 is passes as 'no'
+                  while cap.isOpened() and (i < no or no<=0):
+                    i += 1
+                    #reading image from video at given set frame
+                    success, image = cap.read()
+                    if not success:
+                        print("Ignoring empty camera frame.")
+                        # breaking loop if end of video frames are reached
+                        break
 
-              #check if video stream is opened and no of frames processed are less than 'no'
-              # or process all frames if -1 is passes as 'no'
-              while cap.isOpened() and (i < no or no<=0):
-                i += 1
-                target =None
-
-                #reading image from video at given set frame
-                success, image = cap.read()
-                if not success:
-                    print("Ignoring empty camera frame.")
-                    # breaking loop if end of video frames are reached
-                    break
-
-                try:
                     # Flip the image horizontally for a later selfie-view display, and convert
                     # the BGR image to RGB.
                     image = cv2.cvtColor(cv2.flip(image, 1), cv2.COLOR_BGR2RGB)
@@ -98,12 +105,8 @@ def generateFacemeshnumpyArray(target_dir, path,no,file_type):
                         landmark_arr = []
                         #yeilding landmark array and 'target' ie folder location to save
                         for point in face_landmarks.landmark:
-                            landmark_arr.append(np.array([point.x, point.y, point.z]))
-                        landmarks.append( landmark_arr)
-                except Exception as e:
-                    print('Error in frame',i,e)
-                except:
-                    print('Error in frame',i)
+                            landmark_arr.append([point.x, point.y, point.z])
+                        f.write(json.dumps(landmark_arr)+"\n")
         except Exception as e:
             print('Error in frame', i, e)
         except:
@@ -113,11 +116,11 @@ def generateFacemeshnumpyArray(target_dir, path,no,file_type):
             flag_continue = False
 
 
-    save_landmark_csv(np.array(landmarks),target_dir)
+    save_landmark_csv(target_dir,file_type)
     cap.release()
     return 'completed ='+path
 
-def save_landmark_csv(ar, path):
+def save_landmark_csv(path,file_type):
     '''
     saves ar at given path with file type = file_type
     :param ar: landmarks array
@@ -125,22 +128,25 @@ def save_landmark_csv(ar, path):
     :param file_type: csv or npy
     :return:
     '''
-    if file_type == 'npy':
-        np.save(path,ar)
-    elif file_type == 'csv':
-        # csv file has three columns x, y,z and 468 lines for each landmark point
-        with open(path+"."+file_type,'w') as f:
-         for point in ar:
-             point = point*1000
-             f.write(str(int(point[0]))+","+str(int(point[1]))+","+str(int(point[2]))+"\n")
-    else:
-        def custom_shard(element):
-            return tf.constant(0,dtype=tf.int64)
-        ar = np.float16(ar)
-        print(ar.shape,ar.dtype)
-        ds = tf.data.Dataset.from_tensor_slices(ar)
-        tf.data.experimental.save(ds,path,'GZIP',custom_shard)
-        # tf.data.experimental.save(ds, path)
+
+    def custom_shard(element):
+        return tf.constant(0,dtype=tf.int64)
+
+    json_file = os.path.join(path, 'landmarks.json')
+
+    ar =[]
+    with open(json_file) as f:
+        for line in f.readlines():
+            ar.append(json.loads(line))
+
+    ar = np.float16(ar)
+    print(ar.shape,ar.dtype)
+    ds = tf.data.Dataset.from_tensor_slices(ar)
+    for item in ds.take(1):
+        print(item)
+    tf.data.experimental.save(ds,path,'GZIP',custom_shard)
+    os.remove(json_file)
+    # tf.data.experimental.save(ds, path)
 
 def get_video_target_paths(rootdir):
     '''
@@ -192,10 +198,10 @@ def extract_landmarks(rootdir, outputdir, no_frames, file_type, no_processes):
             if glob.glob(sp):
                 continue
             print(path,target)
-            generateFacemeshnumpyArray(target, path, no_frames, file_type)
-            # future = executor.submit(generateFacemeshnumpyArray, target_dir = target, path = path, no = no_frames,
-            #                 file_type=file_type)
-            # future_to_path[future] = target
+            # generateFacemeshnumpyArray(target, path, no_frames, file_type)
+            future = executor.submit(generateFacemeshnumpyArray, target_dir = target, path = path, no = no_frames,
+                            file_type=file_type)
+            future_to_path[future] = target
         for future in concurrent.futures.as_completed(future_to_path):
             path = future_to_path[future]
             print(future.done())
@@ -225,34 +231,22 @@ if __name__=="__main__":
     while(not extract_landmarks(rootdir,outputdir,no_frames,file_type,no_processes)):
         pass
 
-    #printing few samples from each class folder
-    for subdir, dirs, files in os.walk(outputdir):
-        for file in files:
-            file = os.path.join(subdir,file)
-            if file_type == 'npy':
-                ar = np.load(file,allow_pickle=True)
-                print(ar[0])
-            elif file_type == 'csv':
-                with open(file) as f:
-                    print(f.readline())
-            break
-    path = r'C:\Users\kurud\Documents\ineaurondeeplearn\internship\DrowsyDetectCNNmodel\data2\5\36'
-    sp = os.path.join(path, '*', "*", "*.snapshot")
-    print(sp)
-
-
-    if glob.glob(sp):
-        print("snapshot exists")
-
-        typespec = tf.TensorSpec(
-            shape=[468,3], dtype=tf.dtypes.double, name=None
-        )
-        ds = tf.data.experimental.load(path,compression='GZIP')
-        tf.print("size=",tf.data.experimental.cardinality(ds))
-        for item in ds.take(1).as_numpy_iterator():
-            tf.print("printing dataset")
-            tf.print(item)
-
+    # path = r'C:\Users\kurud\Documents\ineaurondeeplearn\internship\DrowsyDetectCNNmodel\data3\5\**'
+    # sp = os.path.join(path, '*', "*", "*.snapshot")
+    # print(sp)
+    #
+    #
+    # if glob.glob(sp):
+    #     print("snapshot exists")
+    #
+    #     typespec = tf.TensorSpec(
+    #         shape=[468,3], dtype=tf.dtypes.double, name=None
+    #     )
+    #     ds = tf.data.experimental.load(path,compression='GZIP')
+    #     tf.print("size=",tf.data.experimental.cardinality(ds))
+    #     for item in ds.take(1).as_numpy_iterator():
+    #         tf.print("printing dataset")
+    #         tf.print(item)
     print("Parallel processing time:", time.time() - threaded_start)
 
 
