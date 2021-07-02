@@ -85,21 +85,23 @@ def generateFacemeshnumpyArray(target_dir, path,no,file_type):
             # breaking loop if end of video frames are reached
             break
 
-
-        # Flip the image horizontally for a later selfie-view display, and convert
-        # the BGR image to RGB.
-        image = cv2.cvtColor(cv2.flip(image, 1), cv2.COLOR_BGR2RGB)
-        # To improve performance, optionally mark the image as not writeable to
-        # pass by reference.
-        image.flags.writeable = False
-        results = face_mesh.process(image)
-        if results.multi_face_landmarks:
-          for face_landmarks in results.multi_face_landmarks:
-            landmark_arr = []
-            #yeilding landmark array and 'target' ie folder location to save
-            for point in face_landmarks.landmark:
-                landmark_arr.append(np.array([point.x, point.y, point.z]))
-            landmarks.append( landmark_arr)
+        try:
+            # Flip the image horizontally for a later selfie-view display, and convert
+            # the BGR image to RGB.
+            image = cv2.cvtColor(cv2.flip(image, 1), cv2.COLOR_BGR2RGB)
+            # To improve performance, optionally mark the image as not writeable to
+            # pass by reference.
+            image.flags.writeable = False
+            results = face_mesh.process(image)
+            if results.multi_face_landmarks:
+              for face_landmarks in results.multi_face_landmarks:
+                landmark_arr = []
+                #yeilding landmark array and 'target' ie folder location to save
+                for point in face_landmarks.landmark:
+                    landmark_arr.append(np.array([point.x, point.y, point.z]))
+                landmarks.append( landmark_arr)
+        except Exception as e:
+            print('Error in frame',i,e)
     save_landmark_csv(np.array(landmarks),target_dir)
     cap.release()
     return 'completed ='+path
