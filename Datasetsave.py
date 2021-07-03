@@ -138,7 +138,10 @@ def save_landmark_csv(path,json_file,file_type):
     ar =[]
     with open(json_file) as f:
         for line in f.readlines():
-            ar.append(json.loads(line))
+            try:
+                ar.append(json.loads(line))
+            except Exception as e:
+                print(e)
 
     ar = np.float16(ar)
     print(ar.shape,ar.dtype)
