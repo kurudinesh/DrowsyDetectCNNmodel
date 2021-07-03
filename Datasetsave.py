@@ -42,7 +42,7 @@ args = vars(ap.parse_args())
 
 mp_face_mesh = mp.solutions.face_mesh
 
-def generateFacemeshnumpyArray(target_dir, path,no,file_type):
+def generateFacemeshnumpyArray(target_dir, path,temp_target, no,file_type):
     '''
     'no' number of landmarks are saved as 'file_type' files
     :param target_dir: output directory directory
@@ -62,20 +62,23 @@ def generateFacemeshnumpyArray(target_dir, path,no,file_type):
             cap = cv2.VideoCapture(path)
 
             print(path,' has total frames=',cap.get(cv2.CAP_PROP_FRAME_COUNT),'setting frame no to',i)
+            json_dir = temp_target
+            json_file = os.path.join(json_dir,'landmarks.json')
 
-            json_file = os.path.join(target_dir,'landmarks.json')
-
-            if os.path.exists(json_file):
+            if os.path.exists(json_dir):
                 print('checking no of lined present')
                 with open(json_file) as f:
                     for _ in f.readlines():
                         i=i+1
             else:
-                os.makedirs(target_dir)
+                os.makedirs(json_dir)
+
+            print(path, 'is set to frame no', i, 'using temp file',json_file)
 
             if last_i + 10 < i:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, i)  # setting frame position from where to resume reading video
             last_i = i
+
 
 
             with mp_face_mesh.FaceMesh(
@@ -116,11 +119,11 @@ def generateFacemeshnumpyArray(target_dir, path,no,file_type):
             flag_continue = False
 
 
-    save_landmark_csv(target_dir,file_type)
+    save_landmark_csv(target_dir,json_file,file_type)
     cap.release()
     return 'completed ='+path
 
-def save_landmark_csv(path,file_type):
+def save_landmark_csv(path,json_file,file_type):
     '''
     saves ar at given path with file type = file_type
     :param ar: landmarks array
@@ -131,8 +134,6 @@ def save_landmark_csv(path,file_type):
 
     def custom_shard(element):
         return tf.constant(0,dtype=tf.int64)
-
-    json_file = os.path.join(path, 'landmarks.json')
 
     ar =[]
     with open(json_file) as f:
@@ -188,6 +189,10 @@ def extract_landmarks(rootdir, outputdir, no_frames, file_type, no_processes):
     if not os.path.exists(outputdir):
         os.makedirs(outputdir)
 
+    temp_dir = rootdir+"_temp"
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+
     status = True
 
     video_target = get_video_target_paths(rootdir)
@@ -197,9 +202,13 @@ def extract_landmarks(rootdir, outputdir, no_frames, file_type, no_processes):
             sp = os.path.join(target, '*', "*", "*.snapshot")
             if glob.glob(sp):
                 continue
-            print(path,target)
-            # generateFacemeshnumpyArray(target, path, no_frames, file_type)
-            future = executor.submit(generateFacemeshnumpyArray, target_dir = target, path = path, no = no_frames,
+            temp_sub_dir = os.path.join(temp_dir,os.path.basename(os.path.dirname(target)))
+            if not os.path.exists(temp_sub_dir):
+                os.makedirs(temp_sub_dir)
+            temp_target = os.path.join(temp_sub_dir,os.path.basename(target))
+            print(path,target,temp_target)
+            # generateFacemeshnumpyArray(target, path, temp_target no_frames, file_type)
+            future = executor.submit(generateFacemeshnumpyArray, target_dir = target, path = path, temp_target=temp_target, no = no_frames,
                             file_type=file_type)
             future_to_path[future] = target
         for future in concurrent.futures.as_completed(future_to_path):
