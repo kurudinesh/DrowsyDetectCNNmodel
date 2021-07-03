@@ -31,7 +31,7 @@ ap.add_argument("-n", "--nframes", required=False, type=int,
 ap.add_argument("-f", "--format", required=False, type=str,
                 choices=["csv", "npy",'dataframe'],
                 default='dataframe',
-                help="file format to save landmarks of video frames, DEFAULT 'csv'"
+                help="file format to save landmarks of video frames, DEFAULT 'dataframe'"
                 )
 ap.add_argument("-p", "--nprocesses", required=False, type=int,
                 help="provide number of parallel processes for processing videos"
