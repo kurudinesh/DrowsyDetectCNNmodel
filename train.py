@@ -411,7 +411,6 @@ if mode == 'test':
     gpu_available = tf.test.is_gpu_available()
     if not gpu_available or args['env'] == 'local':
         test_ds = test_ds.take(localcount)
-    model = loadmodel()
     # Recreate the exact same model, including its weights and the optimizer
     new_model = tf.keras.models.load_model(model_path)
 
