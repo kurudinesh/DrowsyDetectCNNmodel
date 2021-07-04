@@ -406,6 +406,21 @@ if mode == 'test':
 
     test_ds, file_count = get_ds_from_dataset([fold])
 
+    count = 0
+    class1 = 0
+    class2 = 0
+    class3 = 0
+    for item in test_ds.as_numpy_iterator():
+        count += 1
+        if 0 == item[1]:
+            class1 += 1
+        elif 1 == item[1]:
+            class2 += 1
+        elif 2 == item[1]:
+            class3 += 1
+
+    print('class1', class1, 'class2', class2, 'class3', class3)
+
     print("test_ds size=", tf.data.experimental.cardinality(test_ds))
 
     test_ds = test_ds.batch(config.BS)
