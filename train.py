@@ -38,25 +38,25 @@ ap.add_argument("-o", "--output", required=False,
                 default='output',
                 help="saves tensorboard logs, checkpoints, hyperparameter logs and trained model in this folder, DEFAULT output",
                 )
-ap.add_argument("-trc", "--traincount", required=False, type=int,
+ap.add_argument("-lc", "--localcount", required=False, type=int,
                 default=1000,
-                help="in local mode the length of train_ds =batchsize*localcount,\n"
+                help="in local mode the length of ds =batchsize*localcount,\n"
                         +" if count is -1 then whole data will be loaded, Default 1000",
                 )
-ap.add_argument("-tc", "--tuningcount", required=False, type=int,
-                default=1000,
-                help="in local mode the length of val_ds =batchsize*tuningcount,\n"
-                        +" if count is -1 then whole data will be loaded,  Default 1000",
-                )
 ap.add_argument("-f", "--format", required=False, type=str,
-                choices=["csv", "npy"],
-                default='csv',
-                help="file format landmarks of video frames are saved in data directory, DEFAULT 'csv'"
+                choices=["csv", "npy",'dataframe'],
+                default='dataframe',
+                help="file format landmarks of video frames are saved in data directory, DEFAULT 'dataframe'"
                 )
 ap.add_argument("-m", "--mode", required=False, type=str,
-                choices=['tune','train'],
+                choices=['tune','train','test'],
                 default='train',
-                help="enter 'true' for hyperparameter tuning, default False"
+                help="enter 'tune' for hyperparameter tuning or others, default train"
+                )
+ap.add_argument("-fld", "--fold", required=False, type=int,
+                choices=[1,2,3,4,5],
+                default=5,
+                help="Enter fold to use for testing and remaining 4 folds will be used for training"
                 )
 
 args = vars(ap.parse_args())
@@ -64,12 +64,12 @@ args = vars(ap.parse_args())
 #setting output_base_folder_path
 output_path = args['output']
 tuning_mode = args["tuner"]
-localcount = args['traincount']
-tuningcount = args['tuningcount']
+localcount = args['localcount']
 file_type = args['format']
 env = args['env']
 root_dir = args['data']
 mode = args['mode']
+fold = args['fold']
 
 #setting path for saving plot of training loss, accuracy
 plot_path = os.path.join(output_path,tuning_mode+'_plot.png')
@@ -84,6 +84,9 @@ model_path = os.path.join(output_path,config.modelname)
 data_dir = pathlib.Path(root_dir)
 class_names = np.array(sorted([item.name for item in data_dir.glob('*') if item.name != "LICENSE.txt"]))
 print(class_names)
+
+for item in data_dir.glob(os.path.join('*','*')):
+    print("datasets are", item)
 
 # @tf.function
 def get_ds():
@@ -153,7 +156,64 @@ def get_ds():
     train_ds = train_ds.map(load_landmark_label,
                             num_parallel_calls=tf.data.AUTOTUNE)
 
-    train_ds = train_ds.apply(tf.data.experimental.ignore_errors()).batch(config.BS)
+    train_ds = train_ds.apply(tf.data.experimental.ignore_errors())
+
+    return train_ds, file_count
+
+def get_ds_from_dataset(folds):
+    """
+    reads class files present in subfolders of root_dir and generates dataset for train dataset
+    return shape will (batchsize, tuple(ar(468,3) float32, size= 1 uint8)
+    :return: returns train dataset of type (landmark (array), label(int))
+    """
+    path_lists = []
+    for f in folds:
+        start = (f-1)*12+1
+        end = f*12+1
+        for subject in range(start,end):
+            path_lists.append(os.path.join(root_dir, "*", str(subject)))
+
+    print('searching for datasets at path',path_lists)
+
+    #loading list of npy files in sub directories
+    landmark_dataset = tf.data.Dataset.list_files(path_lists,shuffle=False)
+    # getting count of total landmark files
+    file_count = tf.data.experimental.cardinality(landmark_dataset)
+    tf.print('dataset files count=',file_count)
+
+    #shuffling dataset with buffersize equal to no of files and preventing reshuffle
+    # while splitting train and test dataset for creating disjoint datasets
+    landmark_dataset = landmark_dataset.shuffle(file_count, reshuffle_each_iteration=False)
+
+    def get_label(file_path):
+        """
+        returns label extracted from path
+        :param file_path:
+        :return: label
+        """
+        parts = tf.strings.split(file_path, os.path.sep)
+        one_hot = parts[-2] == class_names
+        return tf.cast(tf.argmax(one_hot), tf.uint8)
+
+    train_ds = None
+
+    for i in landmark_dataset.as_numpy_iterator():
+        print('loading dataset',i)
+        label = get_label(i)
+        print(label)
+        part_ds = tf.data.experimental.load(bytes.decode(i), compression='GZIP')
+        def maplabel(x):
+            return x,label
+        part_ds = part_ds.map(maplabel)
+        if train_ds ==None:
+            train_ds = part_ds
+        else:
+            train_ds = train_ds.concatenate(part_ds)
+
+    file_count = tf.data.experimental.cardinality(train_ds)
+    tf.print('dataset count=', file_count)
+
+    train_ds = train_ds.shuffle(file_count, reshuffle_each_iteration=False).cache()
 
     return train_ds, file_count
 
@@ -251,7 +311,7 @@ def hp_tune():
     # taking less samples from dataset when no gpu is present
     gpu_available = tf.test.is_gpu_available()
     if not gpu_available or env == 'local':
-        hp_train_ds = train_ds.take(tuningcount)
+        hp_train_ds = train_ds.take(localcount)
 
     # perform the hyperparameter search
     print("[INFO] performing hyperparameter search...in mode ", tuning_mode)
@@ -339,25 +399,99 @@ def train(model):
                   epochs=config.EPOCHS, callbacks=callbacks, verbose=1)
     model.save(model_path)
 
-#loading dataset
-train_ds, file_count = get_ds()
 
-#starting hyperparameter tuning if args['hpsearch'] is set to true
-bestHP = []
-#callling hp tuner and it will run if flag is set
-if mode=='tune':
-    tuner = hp_tune()
+if mode == 'test':
 
-##training model
-if mode=='train':
+    test_ds, file_count = get_ds_from_dataset([fold])
+
+    print("test_ds size=", tf.data.experimental.cardinality(test_ds))
+
+    test_ds = test_ds.batch(config.BS)
     # taking less samples from dataset when no gpu is present
     gpu_available = tf.test.is_gpu_available()
     if not gpu_available or args['env'] == 'local':
-        train_ds = train_ds.take(localcount)
+        test_ds = test_ds.take(localcount)
     model = loadmodel()
-    train(model)
     # Recreate the exact same model, including its weights and the optimizer
     new_model = tf.keras.models.load_model(model_path)
 
     # Show the model architecture
     new_model.summary()
+
+    # Evaluate the model on the test data using `evaluate`
+    print("Evaluate on test data")
+    results = new_model.evaluate(test_ds)
+    print("test loss, test acc:", results)
+
+else:
+
+
+    train_ds =None
+    file_count =None
+    #loading dataset
+    if file_type == 'dataframe':
+        folds = [i for i in range(1,6)]
+        folds.remove(fold)
+        train_ds, file_count = get_ds_from_dataset(folds)
+    else:
+        train_ds, file_count = get_ds()
+
+    count =0
+    class1 = 0
+    class2 = 0
+    class3 = 0
+    for item in train_ds.as_numpy_iterator():
+        count += 1
+        if 0==item[1]:
+            class1+=1
+        elif 1==item[1]:
+            class2+=1
+        elif 2==item[1]:
+            class3+=1
+
+    print('class1',class1,'class2',class2,'class3',class3)
+
+    count =0
+    class1 = 0
+    class2 = 0
+    class3 = 0
+    for item in train_ds.take(100).as_numpy_iterator():
+        count += 1
+        if 0==item[1]:
+            class1+=1
+        elif 1==item[1]:
+            class2+=1
+        elif 2==item[1]:
+            class3+=1
+
+    print('class1',class1,'class2',class2,'class3',class3)
+
+    for item in train_ds.take(2).as_numpy_iterator():
+        print(item[1])
+
+    print(count)
+
+    print("train_ds size=",tf.data.experimental.cardinality(train_ds))
+
+    train_ds = train_ds.batch(config.BS)
+
+    #starting hyperparameter tuning if args['hpsearch'] is set to true
+    bestHP = []
+    #callling hp tuner and it will run if flag is set
+    if mode=='tune':
+        tuner = hp_tune()
+
+    ##training model
+    if mode=='train':
+        # taking less samples from dataset when no gpu is present
+        gpu_available = tf.test.is_gpu_available()
+        if not gpu_available or args['env'] == 'local':
+            train_ds = train_ds.take(localcount)
+        model = loadmodel()
+        train(model)
+        # Recreate the exact same model, including its weights and the optimizer
+        new_model = tf.keras.models.load_model(model_path)
+
+        # Show the model architecture
+        new_model.summary()
+
