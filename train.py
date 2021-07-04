@@ -213,6 +213,8 @@ def get_ds_from_dataset(folds):
     file_count = tf.data.experimental.cardinality(train_ds)
     tf.print('dataset count=', file_count)
 
+    train_ds = train_ds.apply(tf.data.experimental.ignore_errors())
+
     train_ds = train_ds.shuffle(file_count, reshuffle_each_iteration=False).cache()
 
     return train_ds, file_count
