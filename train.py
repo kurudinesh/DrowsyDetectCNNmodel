@@ -171,7 +171,7 @@ def get_ds_from_dataset(folds):
         start = (f-1)*12+1
         end = f*12+1
         for subject in range(start,end):
-            path_lists.append(os.path.join(root_dir, "*", str(subject)))
+            path_lists.append(os.path.join(root_dir, "*", '{:02d}'.format(subject)))
 
     print('searching for datasets at path',path_lists)
 
@@ -201,7 +201,10 @@ def get_ds_from_dataset(folds):
         print('loading dataset',i)
         label = get_label(i)
         print(label)
-        part_ds = tf.data.experimental.load(bytes.decode(i), compression='GZIP')
+        try:
+            part_ds = tf.data.experimental.load(bytes.decode(i), compression='GZIP')
+        except:
+            continue
         def maplabel(x):
             return x,label
         part_ds = part_ds.map(maplabel)
@@ -213,7 +216,7 @@ def get_ds_from_dataset(folds):
     file_count = tf.data.experimental.cardinality(train_ds)
     tf.print('dataset count=', file_count)
 
-    train_ds = train_ds.apply(tf.data.experimental.ignore_errors())
+    # train_ds = train_ds.apply(tf.data.experimental.ignore_errors())
 
     train_ds = train_ds.shuffle(file_count, reshuffle_each_iteration=False).cache()
 
@@ -418,6 +421,9 @@ if mode == 'test':
             class2 += 1
         elif 2 == item[1]:
             class3 += 1
+
+    for item in test_ds.as_numpy_iterator():
+        print(item)
 
     print('class1', class1, 'class2', class2, 'class3', class3)
 
