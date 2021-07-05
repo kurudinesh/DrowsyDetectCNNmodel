@@ -56,7 +56,7 @@ ap.add_argument("-m", "--mode", required=False, type=str,
 ap.add_argument("-fld", "--fold", required=False, type=int,
                 choices=[1,2,3,4,5],
                 default=5,
-                help="Enter fold to use for testing and remaining 4 folds will be used for training"
+                help="Enter fold to use for testing and remaining 4 folds will be used for training,Default: 5"
                 )
 ap.add_argument("-vp", "--valpart", required=False, type=int,
                 choices=[1,2],
