@@ -422,7 +422,7 @@ if mode == 'test':
         elif 2 == item[1]:
             class3 += 1
 
-    for item in test_ds.as_numpy_iterator():
+    for item in test_ds.take(10).as_numpy_iterator():
         print(item)
 
     print('class1', class1, 'class2', class2, 'class3', class3)
