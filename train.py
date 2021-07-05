@@ -58,6 +58,11 @@ ap.add_argument("-fld", "--fold", required=False, type=int,
                 default=5,
                 help="Enter fold to use for testing and remaining 4 folds will be used for training"
                 )
+ap.add_argument("-vp", "--valpart", required=False, type=int,
+                choices=[1,2],
+                default=2,
+                help="Enter validationpart to select as validation"
+                )
 
 args = vars(ap.parse_args())
 
@@ -70,7 +75,7 @@ env = args['env']
 root_dir = args['data']
 mode = args['mode']
 fold = args['fold']
-
+val_part = args['valpart']
 #setting path for saving plot of training loss, accuracy
 plot_path = os.path.join(output_path,tuning_mode+'_plot.png')
 
@@ -160,18 +165,26 @@ def get_ds():
 
     return train_ds, file_count
 
-def get_ds_from_dataset(folds):
+def get_ds_from_dataset(folds,part=None):
     """
     reads class files present in subfolders of root_dir and generates dataset for train dataset
     return shape will (batchsize, tuple(ar(468,3) float32, size= 1 uint8)
     :return: returns train dataset of type (landmark (array), label(int))
     """
     path_lists = []
-    for f in folds:
-        start = (f-1)*12+1
-        end = f*12+1
-        for subject in range(start,end):
+    if part is not None:
+        fold = folds[0]
+        offset = (part-1)*6
+        start = (fold - 1) * 12 + offset+1
+        end = start + 6
+        for subject in range(start, end):
             path_lists.append(os.path.join(root_dir, "*", '{:02d}'.format(subject)))
+    else:
+        for f in folds:
+            start = (f-1)*12+1
+            end = f*12+1
+            for subject in range(start,end):
+                path_lists.append(os.path.join(root_dir, "*", '{:02d}'.format(subject)))
 
     print('searching for datasets at path',path_lists)
 
@@ -213,12 +226,16 @@ def get_ds_from_dataset(folds):
         else:
             train_ds = train_ds.concatenate(part_ds)
 
-    file_count = tf.data.experimental.cardinality(train_ds)
-    tf.print('dataset count=', file_count)
-
     # train_ds = train_ds.apply(tf.data.experimental.ignore_errors())
 
-    train_ds = train_ds.shuffle(file_count, reshuffle_each_iteration=False).cache()
+    ds_count = tf.data.experimental.cardinality(train_ds)
+
+    print("ds count",ds_count)
+
+    train_ds = train_ds.shuffle(ds_count, reshuffle_each_iteration=False)
+
+    train_ds = train_ds.batch(config.BS).cache()
+    print("batched ds size=", tf.data.experimental.cardinality(train_ds))
 
     return train_ds, file_count
 
@@ -282,7 +299,7 @@ def hp_tune():
         print("[INFO] instantiating a hyperband tuner object...")
         tuner = kt.Hyperband(
             build_model,
-            objective="sparse_categorical_accuracy",
+            objective=config.objective,
             max_epochs=config.EPOCHS,
             factor=3,
             seed=42,
@@ -294,7 +311,7 @@ def hp_tune():
         print("[INFO] instantiating a random search tuner object...")
         tuner = kt.RandomSearch(
             build_model,
-            objective="sparse_categorical_accuracy",
+            objective=config.objective,
             max_trials=config.trails,
             seed=42,
             directory=output_path,
@@ -305,7 +322,7 @@ def hp_tune():
         print("[INFO] instantiating a bayesian optimization tuner object...")
         tuner = kt.BayesianOptimization(
             build_model,
-            objective="sparse_categorical_accuracy",
+            objective=config.objective,
             max_trials=config.trails,
             seed=42,
             directory=output_path,
@@ -313,22 +330,18 @@ def hp_tune():
 
     hp_train_ds = train_ds
 
-    # taking less samples from dataset when no gpu is present
-    gpu_available = tf.test.is_gpu_available()
-    if not gpu_available or env == 'local':
-        hp_train_ds = train_ds.take(localcount)
-
     # perform the hyperparameter search
     print("[INFO] performing hyperparameter search...in mode ", tuning_mode)
     # initialize an early stopping callback to prevent the model from
     # overfitting/spending too much time training with minimal gains
     es = EarlyStopping(
-        monitor="loss",
+        monitor=config.es_monitor,
         patience=config.EARLY_STOPPING_PATIENCE,
         restore_best_weights=True)
 
     tuner.search(
         hp_train_ds,
+        validation_data = val_ds,
         batch_size=config.BS,
         callbacks=[es],
         epochs=config.EPOCHS
@@ -400,40 +413,22 @@ def train(model):
             patience=config.EARLY_STOPPING_PATIENCE,
             restore_best_weights=True)]
 
-    H = model.fit(train_ds,
+    H = model.fit(train_ds,validation_data =val_ds,
                   epochs=config.EPOCHS, callbacks=callbacks, verbose=1)
     model.save(model_path)
 
 
 if mode == 'test':
 
-    test_ds, file_count = get_ds_from_dataset([fold])
+    test_part = 2 if val_part == 1 else 1
+    test_ds, file_count = get_ds_from_dataset([fold],part=test_part)
 
-    count = 0
-    class1 = 0
-    class2 = 0
-    class3 = 0
-    for item in test_ds.as_numpy_iterator():
-        count += 1
-        if 0 == item[1]:
-            class1 += 1
-        elif 1 == item[1]:
-            class2 += 1
-        elif 2 == item[1]:
-            class3 += 1
-
-    for item in test_ds.take(10).as_numpy_iterator():
-        print(item)
-
-    print('class1', class1, 'class2', class2, 'class3', class3)
-
-    print("test_ds size=", tf.data.experimental.cardinality(test_ds))
-
-    test_ds = test_ds.batch(config.BS)
     # taking less samples from dataset when no gpu is present
     gpu_available = tf.test.is_gpu_available()
     if not gpu_available or args['env'] == 'local':
         test_ds = test_ds.take(localcount)
+    print("test_ds size=", tf.data.experimental.cardinality(test_ds))
+
     # Recreate the exact same model, including its weights and the optimizer
     new_model = tf.keras.models.load_model(model_path)
 
@@ -455,47 +450,34 @@ else:
         folds = [i for i in range(1,6)]
         folds.remove(fold)
         train_ds, file_count = get_ds_from_dataset(folds)
+        val_ds, file_count = get_ds_from_dataset([3],val_part)
     else:
         train_ds, file_count = get_ds()
 
-    count =0
-    class1 = 0
-    class2 = 0
-    class3 = 0
-    for item in train_ds.as_numpy_iterator():
-        count += 1
-        if 0==item[1]:
-            class1+=1
-        elif 1==item[1]:
-            class2+=1
-        elif 2==item[1]:
-            class3+=1
+    for item in train_ds.take(1).as_numpy_iterator():
+        print("printing first time train ds",item)
 
-    print('class1',class1,'class2',class2,'class3',class3)
+    for item in train_ds.take(1).as_numpy_iterator():
+        print("printing second time train ds",item)
 
-    count =0
-    class1 = 0
-    class2 = 0
-    class3 = 0
-    for item in train_ds.take(100).as_numpy_iterator():
-        count += 1
-        if 0==item[1]:
-            class1+=1
-        elif 1==item[1]:
-            class2+=1
-        elif 2==item[1]:
-            class3+=1
+    batched_val_size = tf.data.experimental.cardinality(val_ds)
 
-    print('class1',class1,'class2',class2,'class3',class3)
+    val_ds = val_ds.take(int(batched_val_size / 2))
 
-    for item in train_ds.take(2).as_numpy_iterator():
-        print(item[1])
+    for item in val_ds.take(1).as_numpy_iterator():
+        print("printing first time val ds", item)
 
-    print(count)
+    for item in val_ds.take(1).as_numpy_iterator():
+        print("printing second time val ds", item)
 
-    print("train_ds size=",tf.data.experimental.cardinality(train_ds))
+    # taking less samples from dataset when no gpu is present
+    gpu_available = tf.test.is_gpu_available()
+    if not gpu_available or args['env'] == 'local':
+        train_ds = train_ds.take(localcount)
+        val_ds = val_ds.take(int(localcount / 2))
+    print("val_ds size=", tf.data.experimental.cardinality(val_ds))
+    print("train_ds size=", tf.data.experimental.cardinality(train_ds))
 
-    train_ds = train_ds.batch(config.BS)
 
     #starting hyperparameter tuning if args['hpsearch'] is set to true
     bestHP = []
@@ -505,10 +487,6 @@ else:
 
     ##training model
     if mode=='train':
-        # taking less samples from dataset when no gpu is present
-        gpu_available = tf.test.is_gpu_available()
-        if not gpu_available or args['env'] == 'local':
-            train_ds = train_ds.take(localcount)
         model = loadmodel()
         train(model)
         # Recreate the exact same model, including its weights and the optimizer

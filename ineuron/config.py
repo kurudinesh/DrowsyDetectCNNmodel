@@ -10,4 +10,6 @@ NUM_CLASSES = 3
 EPOCHS = 50
 BS = 32
 EARLY_STOPPING_PATIENCE = 3
-trails = 25
+trails = 50
+objective = 'val_sparse_categorical_accuracy'
+es_monitor = 'val_loss'
