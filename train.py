@@ -476,10 +476,6 @@ else:
     for item in train_ds.take(1).as_numpy_iterator():
         print("printing second time train ds",item)
 
-    batched_val_size = tf.data.experimental.cardinality(val_ds)
-
-    val_ds = val_ds.take(int(batched_val_size / 2))
-
     for item in val_ds.take(1).as_numpy_iterator():
         print("printing first time val ds", item)
 
