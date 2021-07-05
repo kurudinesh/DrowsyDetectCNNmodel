@@ -165,7 +165,7 @@ def get_ds():
 
     return train_ds, file_count
 
-def get_ds_from_dataset(folds,part=None):
+def get_ds_from_dataset(folds,part=None,take_count=None):
     """
     reads class files present in subfolders of root_dir and generates dataset for train dataset
     return shape will (batchsize, tuple(ar(468,3) float32, size= 1 uint8)
@@ -234,7 +234,10 @@ def get_ds_from_dataset(folds,part=None):
 
     train_ds = train_ds.shuffle(ds_count, reshuffle_each_iteration=False)
 
-    train_ds = train_ds.batch(config.BS).cache()
+    if take_count is not None:
+        train_ds = train_ds.batch(config.BS).take(take_count).cache()
+    else:
+        train_ds = train_ds.batch(config.BS).cache()
     print("batched ds size=", tf.data.experimental.cardinality(train_ds))
 
     return train_ds, file_count
@@ -421,12 +424,16 @@ def train(model):
 if mode == 'test':
 
     test_part = 2 if val_part == 1 else 1
-    test_ds, file_count = get_ds_from_dataset([fold],part=test_part)
 
+    test_ds =None
     # taking less samples from dataset when no gpu is present
     gpu_available = tf.test.is_gpu_available()
     if not gpu_available or args['env'] == 'local':
-        test_ds = test_ds.take(localcount)
+        test_ds, file_count = get_ds_from_dataset([fold], part=test_part,take_count=localcount)
+    else:
+        test_ds, file_count = get_ds_from_dataset([fold],part=test_part)
+
+
     print("test_ds size=", tf.data.experimental.cardinality(test_ds))
 
     # Recreate the exact same model, including its weights and the optimizer
@@ -444,13 +451,22 @@ else:
 
 
     train_ds =None
+    val_ds =None
     file_count =None
     #loading dataset
     if file_type == 'dataframe':
-        folds = [i for i in range(1,6)]
+
+        folds = [i for i in range(1, 6)]
         folds.remove(fold)
-        train_ds, file_count = get_ds_from_dataset(folds)
-        val_ds, file_count = get_ds_from_dataset([fold],val_part)
+
+        # taking less samples from dataset when no gpu is present
+        gpu_available = tf.test.is_gpu_available()
+        if not gpu_available or args['env'] == 'local':
+            train_ds, file_count = get_ds_from_dataset(folds,take_count = localcount)
+            val_ds, file_count = get_ds_from_dataset([fold],val_part,take_count= int(localcount / 2))
+        else:
+            train_ds, file_count = get_ds_from_dataset(folds)
+            val_ds, file_count = get_ds_from_dataset([fold],val_part)
     else:
         train_ds, file_count = get_ds()
 
@@ -470,11 +486,7 @@ else:
     for item in val_ds.take(1).as_numpy_iterator():
         print("printing second time val ds", item)
 
-    # taking less samples from dataset when no gpu is present
-    gpu_available = tf.test.is_gpu_available()
-    if not gpu_available or args['env'] == 'local':
-        train_ds = train_ds.take(localcount)
-        val_ds = val_ds.take(int(localcount / 2))
+
     print("val_ds size=", tf.data.experimental.cardinality(val_ds))
     print("train_ds size=", tf.data.experimental.cardinality(train_ds))
 
