@@ -450,7 +450,7 @@ else:
         folds = [i for i in range(1,6)]
         folds.remove(fold)
         train_ds, file_count = get_ds_from_dataset(folds)
-        val_ds, file_count = get_ds_from_dataset([3],val_part)
+        val_ds, file_count = get_ds_from_dataset([fold],val_part)
     else:
         train_ds, file_count = get_ds()
 
