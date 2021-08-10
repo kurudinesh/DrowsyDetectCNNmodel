@@ -1,4 +1,3 @@
-import cv2
 import mediapipe as mp
 mp_drawing = mp.solutions.drawing_utils
 mp_face_mesh = mp.solutions.face_mesh
@@ -6,37 +5,11 @@ import numpy as np
 import cv2
 import platform
 import tensorflow as tf
-from ineuron import  config
-import os
+import argparse
+import imutils
 
 # For static images:
-IMAGE_FILES = []
 drawing_spec = mp_drawing.DrawingSpec(thickness=1, circle_radius=1)
-with mp_face_mesh.FaceMesh(
-    static_image_mode=True,
-    max_num_faces=1,
-    min_detection_confidence=0.5) as face_mesh:
-  for idx, file in enumerate(IMAGE_FILES):
-    image = cv2.imread(file)
-    # Convert the BGR image to RGB before processing.
-    results = face_mesh.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-
-    # Print and draw face mesh landmarks on the image.
-    if not results.multi_face_landmarks:
-      continue
-    annotated_image = image.copy()
-    for face_landmarks in results.multi_face_landmarks:
-      print('face_landmarks:', face_landmarks)
-      mp_drawing.draw_landmarks(
-          image=annotated_image,
-          landmark_list=face_landmarks,
-          connections=mp_face_mesh.FACE_CONNECTIONS,
-          landmark_drawing_spec=drawing_spec,
-          connection_drawing_spec=drawing_spec)
-    cv2.imwrite('/tmp/annotated_image' + str(idx) + '.png', annotated_image)
-
-
-
 
 
 if __name__ == "__main__":
@@ -44,12 +17,33 @@ if __name__ == "__main__":
     model = tf.keras.models.load_model(model_path)
 
     print("python version:", platform.python_version())
-    cap = cv2.VideoCapture(0)
+    # construct the argument parser and parse the arguments
+    ap = argparse.ArgumentParser()
+    ap.add_argument("-p", "--path", required=False, type=str,
+                    help="set path of video for testing video path")
+
+    args = vars(ap.parse_args())
+    path = args['path']
+    cap = None
+    if path is None:
+        cap = cv2.VideoCapture(0)
+    else:
+        cap = cv2.VideoCapture(path)
+
+
+    cap.set(3,2000)
+    cap.set(4,2000)
+
+    ret, frame = cap.read()
+    cv2.namedWindow('frame', cv2.WINDOW_AUTOSIZE)
+
     drawing_spec = mp_drawing.DrawingSpec(thickness=1, circle_radius=1)
     with mp_face_mesh.FaceMesh() as face_mesh:
         while(True):
             # Capture frame-by-frame
             ret, frame = cap.read()
+
+            frame = imutils.resize(frame, width=450)
             image = frame
             image = cv2.cvtColor(cv2.flip(image, 1), cv2.COLOR_BGR2RGB)
             # To improve performance, optionally mark the image as not writeable to
@@ -72,15 +66,16 @@ if __name__ == "__main__":
                     landmark_arr = []
                     for point in face_landmarks.landmark:
                         landmark_arr.append([point.x, point.y, point.z])
-                    print(landmark_arr)
+                    # print(landmark_arr)
                     status = model.predict([landmark_arr])
             print(status)
-            index = np.argmax(status[0])
-            percentage = status[0][index]
-            frame = image
-            label = ['alert','drowsy','semi alert']
-            msg = label[index]+' '+'{:.2f}'.format(percentage)
-            cv2.putText(frame,msg,(400, 50), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),2,cv2.LINE_AA)
+            if status is not None:
+                index = np.argmax(status[0])
+                percentage = status[0][index]
+                frame = image
+                label = ['alert','drowsy','semi alert']
+                msg = label[index]+' '+'{:.2f}'.format(percentage)
+                cv2.putText(frame,msg,(200, 50), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),2,cv2.LINE_AA)
 
             # Process the keys
             key = cv2.waitKey(1) & 0xFF
@@ -88,7 +83,7 @@ if __name__ == "__main__":
                 print("quit")
                 break
             # show the images
-            cv2.imshow('frame',frame)
+            cv2.imshow('frame',image)
 
     cap.release()
     cv2.destroyAllWindows()
